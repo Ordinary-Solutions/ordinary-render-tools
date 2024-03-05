@@ -1,7 +1,7 @@
 <script lang="ts">
 import { defineComponent } from 'vue';
 import * as THREE from 'three';
-import { DDSLoader } from "three/addons/loaders/DDSLoader";
+import { DDSLoader } from "~/libraries/DDSLoader";
 import { markRaw } from "vue";
 import * as JSZip from "jszip";
 
@@ -52,6 +52,8 @@ export default defineComponent({
 
     let manager = new THREE.LoadingManager();
     manager.addHandler(/\.dds$/i, new DDSLoader());
+
+    console.log(manager);
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
     directionalLight.position.set(-2, -2, 5);
@@ -886,7 +888,9 @@ export default defineComponent({
 
       let textures = await this.findTextures(entries, drawableName);
 
-      if (!textures) {
+      console.log(textures);
+
+      if (!textures.length) {
         console.warn(`Textures not found for ${drawableName}, loading test UV texture`);
 
         textures = [
