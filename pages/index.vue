@@ -24,6 +24,17 @@ export default defineComponent({
     currentFolder: null,
 
     renderer: null,
+
+    status: {
+      generateZip: false,
+      isWorking: false,
+
+      currentFolder: 0,
+      totalFolders: 0,
+
+      currentDrawable: 0,
+      totalDrawables: 0,
+    },
   }),
   async mounted() {
     this.scene = markRaw(new THREE.Scene());
@@ -941,22 +952,33 @@ export default defineComponent({
       let entries = await this.readDirectory(dir);
 
       let drawables = await this.findDrawables(entries);
-      let ydrs = await this.findYdrs(entries);
+      // let ydrs = await this.findYdrs(entries);
+
+      this.status.totalDrawables = drawables.length;
+      this.status.currentDrawable = 0;
 
       let zipFolder = zip.folder(zipFolderName);
 
       this.currentFolder = zipFolderName;
 
-      for (let ydr of ydrs) {
-        await this.processYdr(entries, zip, zipFolder, ydr);
-      }
+      // for (let ydr of ydrs) {
+      //   await this.processYdr(entries, zip, zipFolder, ydr);
+      // }
 
       for (let drawable of drawables) {
+        this.status.currentDrawable++;
+
         await this.processYdd(entries, zip, zipFolder, drawable);
       }
     },
 
     async traverseFileSystem(item) {
+      if (this.status.isWorking) {
+        return;
+      }
+
+      this.status.isWorking = true;
+
       if (item.isDirectory) {
         let entries = await this.readDirectory(item);
 
@@ -965,26 +987,35 @@ export default defineComponent({
         if (drawables.length > 0) {
           let zip = new JSZip.default();
 
+          this.status.currentFolder = 1;
+          this.status.totalFolders = 1;
+
           await this.traverseDirs(item, zip, item.name);
 
-          let content = await zip.generateAsync({ type: "blob" });
-
-          this.downloadZip(`${item.name}.zip`, content);
+          await this.downloadZip(zip, `${item.name}.zip`);
         } else {
+          this.status.currentFolder = 0;
+          this.status.totalFolders = entries.length;
+
           for (let i = 0; i < entries.length; i++) {
+            this.status.currentFolder++;
+
             let zip = new JSZip.default();
 
             await this.traverseDirs(entries[i], zip, entries[i].name);
 
-            let content = await zip.generateAsync({ type: "blob" });
-
-            this.downloadZip(`${entries[i].name}.zip`, content);
+            await this.downloadZip(zip, `${entries[i].name}.zip`);
           }
         }
       }
+
+      this.status.isWorking = false;
     },
 
-    downloadZip(filename, blob) {
+    async downloadZip(zip, filename) {
+      this.status.generateZip = true;
+      let blob = await zip.generateAsync({ type: "blob" });
+
       let url = window.URL.createObjectURL(blob);
 
       let a = document.createElement("a");
@@ -992,6 +1023,8 @@ export default defineComponent({
       a.download = filename;
       a.click();
       window.URL.revokeObjectURL(url);
+
+      this.status.generateZip = false;
     },
 
     onDrop(event) {
@@ -1008,16 +1041,72 @@ export default defineComponent({
       }
     }
   },
+
+  computed: {
+    getStatusClasses() {
+      let classes = [];
+
+      return classes;
+    },
+    getStatusString() {
+      if (this.status.isWorking) {
+        if (this.status.generateZip) {
+          return `generating zip`;
+        }
+
+        return `working (Folders: ${this.status.currentFolder} / ${this.status.totalFolders}, drawables: ${this.status.currentDrawable} / ${this.status.totalDrawables})`;
+      }
+
+      return 'idle';
+    },
+  },
 })
 </script>
 
 <template>
   <div class="dropzone" @drop.prevent="onDrop" @dragover.prevent>
     <canvas class="canvas" ref="canvas"></canvas>
+
+    <div class="ui-panel">
+      <div class="ui-panel__status">
+        Current status: <span class="ui-panel__status" :class="getStatusClasses">{{ getStatusString }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped lang="scss">
+.ui-panel {
+  position: absolute;
+  top: 24px;
+  left: 16px;
+
+  width: 300px;
+  padding: 12px;
+
+  border-radius: 5px;
+
+  opacity: .5;
+
+  background-color: rgba(8, 8, 8, 1);
+
+  transition: opacity .3s ease-in-out;
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  color: #fff;
+
+  &__status {
+
+  }
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
 .dropzone {
   width: 100%;
   height: 100%;
