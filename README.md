@@ -7,7 +7,7 @@ To install this project, follow these steps:
 
 Clone the repository using Git:
 ```bash
-git clone <repository_url>
+git clone https://github.com/Ordinary-Solutions/ordinary-render-tools.git
 ```
 Navigate to the project directory and install dependencies using npm:
 ```bash
