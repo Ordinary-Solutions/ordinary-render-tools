@@ -13,7 +13,7 @@ Navigate to the project directory and install dependencies using npm:
 ```bash
 npm install
 ```
-Once the dependencies are installed, navigate to your browser and enter the following address:
+Once the dependencies are installed, run the project:
 ```bash
 npm run dev
 # then navigate to localhost:3000
