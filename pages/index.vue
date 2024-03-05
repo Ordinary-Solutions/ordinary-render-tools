@@ -242,6 +242,8 @@ export default defineComponent({
       let tangentOffset = offsets['Tangent'];
       let normalOffset = offsets['Normal'];
 
+      let parseTangent = true;
+
       // console.log('offsets', offsets);
 
       let uvWarnings = [];
@@ -288,35 +290,24 @@ export default defineComponent({
           uv2.push(uv2Value, uv2Value2);
         }
 
-        if (tangent !== undefined) {
-          let tangentX = parseFloat(item[tangentOffset]);
-          let tangentY = parseFloat(item[tangentOffset + 1]);
-          let tangentZ = parseFloat(item[tangentOffset + 2]);
-          let tangentsUNK = parseFloat(item[tangentOffset + 3]);
-
-          // sometimes codewalker produces invalid tangent data, so we need to handle this
-          if (isNaN(tangentX)) {
-            console.warn('TangentX is NaN');
-            tangentX = 0;
-          }
-
-          if (isNaN(tangentY)) {
-            console.warn('TangentY is NaN');
-            tangentY = 0;
-          }
-
-          if (isNaN(tangentZ)) {
-            console.warn('TangentZ is NaN');
-            tangentZ = 0;
-          }
-
-          if (isNaN(tangentsUNK)) {
-            console.warn('TangentUNK is NaN');
-            tangentsUNK = 0;
-          }
-
-          tangent.push(tangentX, tangentY, tangentZ, tangentsUNK);
-        }
+        // low quality mods have no tangents (or they're 0 0 0 0), disabled until UI is implemented
+        // if (tangent !== undefined && parseTangent === true) {
+        //   let tangentX = parseFloat(item[tangentOffset]);
+        //   let tangentY = parseFloat(item[tangentOffset + 1]);
+        //   let tangentZ = parseFloat(item[tangentOffset + 2]);
+        //   let tangentsUNK = parseFloat(item[tangentOffset + 3]);
+        //
+        //   // sometimes codewalker produces invalid tangent data, so we need to handle this
+        //   if (isNaN(tangentX) || isNaN(tangentY) || isNaN(tangentZ) || isNaN(tangentsUNK)) {
+        //     console.warn('Tangent is NaN, ignoring next tangents');
+        //     parseTangent = false;
+        //     tangent = [];
+        //   }
+        //
+        //   if (parseTangent) {
+        //     tangent.push(tangentX, tangentY, tangentZ, tangentsUNK);
+        //   }
+        // }
 
         if (normalOffset !== undefined) {
           let normalX = parseFloat(item[normalOffset]);
@@ -888,7 +879,7 @@ export default defineComponent({
 
       let textures = await this.findTextures(entries, drawableName);
 
-      console.log(textures);
+      // console.log(textures);
 
       if (!textures.length) {
         console.warn(`Textures not found for ${drawableName}, loading test UV texture`);
