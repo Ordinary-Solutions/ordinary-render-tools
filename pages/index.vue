@@ -53,7 +53,7 @@ export default defineComponent({
     let manager = new THREE.LoadingManager();
     manager.addHandler(/\.dds$/i, new DDSLoader());
 
-    console.log(manager);
+    // console.log(manager);
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
     directionalLight.position.set(-2, -2, 5);
@@ -222,19 +222,9 @@ export default defineComponent({
       let plain = vertexBufferEl.innerHTML.replace(/ +(?= )/g, '');
 
       let strings = plain.split('\n');
+      strings = strings.map((str) => str.trim()).filter((str) => str.length > 0);
 
-      let data = strings.map(string => string.trim().split(' '));
-
-      if (data[0] && data[0].length === 1) {
-        data.shift();
-      }
-
-      let vertices = [];
-      let uv = [];
-      let uv2 = [];
-      let indexes = [];
-      let tangent = [];
-      let normals = [];
+      // console.log(strings.length);
 
       let positionOffset = offsets['Position'];
       let uvOffset = offsets['TexCoord0'];
@@ -248,26 +238,34 @@ export default defineComponent({
 
       let uvWarnings = [];
 
-      for (let item of strings) {
-        if (!item) {
-          continue;
-        }
+      let vertices = new Float32Array(strings.length * 3);
+      let uv = new Float32Array(strings.length * 2);
+      let uv2 = new Float32Array(strings.length * 2);
+      let tangent = new Float32Array(strings.length * 4);
+      let normals = new Float32Array(strings.length * 3);
+
+      let indexes = [];
+
+      for (let currentIndex in strings) {
+        let item = strings[currentIndex];
 
         item = item.trim();
 
         item = item.split(' ');
 
         if (!item || !item[0]) {
-          continue;
+          throw new Error('Never but what if it happens');
         }
 
         let [vx, vy, vz] = [parseFloat(item[positionOffset]), parseFloat(item[positionOffset + 1]), parseFloat(item[positionOffset + 2])];
 
         if (isNaN(vx) || isNaN(vy) || isNaN(vz)) {
-          throw new Error('VertexBuffer has nulls');
+          throw new Error('VertexBuffer has not-a-numbers');
         }
 
-        vertices.push(vx, vy, vz);
+        vertices[currentIndex * 3] = vx;
+        vertices[currentIndex * 3 + 1] = vy;
+        vertices[currentIndex * 3 + 2] = vz;
 
         let uvValue = parseFloat(item[uvOffset]);
         let uvValue2 = parseFloat(item[uvOffset + 1]);
@@ -282,12 +280,15 @@ export default defineComponent({
           }
         }
 
-        uv.push(uvValue, uvValue2);
+        uv[currentIndex * 2] = uvValue;
+        uv[currentIndex * 2 + 1] = uvValue2;
 
         if (uv2Offset !== undefined) {
           let uv2Value = parseFloat(item[uv2Offset]);
           let uv2Value2 = parseFloat(item[uv2Offset + 1]);
-          uv2.push(uv2Value, uv2Value2);
+
+          uv2[currentIndex * 2] = uv2Value;
+          uv2[currentIndex * 2 + 1] = uv2Value2;
         }
 
         // low quality mods have no tangents (or they're 0 0 0 0), disabled until UI is implemented
@@ -319,16 +320,20 @@ export default defineComponent({
             throw new Error('Cannot parse normal');
           }
 
-          normals.push(normalX, normalY, normalZ);
+          normals[currentIndex * 3] = normalX;
+          normals[currentIndex * 3 + 1] = normalY;
+          normals[currentIndex * 3 + 2] = normalZ;
         }
       }
 
-      for (let index of indexData) {
-        indexes.push(index);
-      }
+      indexes = indexData.map(index => parseInt(index));
 
       if (uvWarnings.length) {
         console.warn('UV warnings', offsets, uvWarnings);
+      }
+
+      if (vertices.length > 10000) {
+        console.warn('Too many vertices', vertices.length);
       }
 
       return {
@@ -369,27 +374,25 @@ export default defineComponent({
       for (let geometryXml of el.children) {
         let { vertices, uv, uv2, indexes, tangent, normals } = this.getGeometriesData(geometryXml);
 
-        let geometry = markRaw(new THREE.BufferGeometry());// this.geometry = markRaw(new THREE.BufferGeometry());
-        vertices = new Float32Array(vertices);
-        uv = new Float32Array(uv);
+        // console.log(vertices, uv, uv2, indexes, tangent, normals);
+
+        let geometry = markRaw(new THREE.BufferGeometry());
 
         geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
         geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 
         if (uv2 && uv2.length) {
-          uv2 = new Float32Array(uv2);
+          // uv2 = new Float32Array(uv2);
           geometry.setAttribute('uv3', new THREE.BufferAttribute(uv2, 2));
         }
 
         geometry.setIndex(indexes);
 
-        if (tangent && tangent.length) {
-          tangent = new Float32Array(tangent);
-          geometry.setAttribute('tangent', new THREE.BufferAttribute(tangent, 4));
-        }
+        // if (tangent && tangent.length) {
+        //   geometry.setAttribute('tangent', new THREE.BufferAttribute(tangent, 4));
+        // }
 
         if (normals && normals.length) {
-          normals = new Float32Array(normals);
           geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
         } else {
           geometry.computeVertexNormals();
