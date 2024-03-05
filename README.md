@@ -25,7 +25,7 @@ npm run dev
 # Usage
 To use this project, follow these steps:
 
-- Create a folder containing your drawables (clothes) in [CodeWalker](https://github.com/dexyfex/CodeWalker) XML format.
+- Create folder and export your drawables (YDDs & YTDs) in [CodeWalker](https://github.com/dexyfex/CodeWalker) XML format.
 - Drag and drop the folder onto the browser page. Folder may contain multiple (tested with 100+) XML files.
 
 # Modded clothes
