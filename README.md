@@ -34,6 +34,18 @@ This tool supports quality models in terms of 3D (game-) design. However, note t
 # Performance 
 Performance depends on your hardware, including CPU, GPU and RAM. You can improve performance by adjusting the sizes of images to 512x512 or even lower. It's essential to keep sizes as small as possible. Additionally, remember that most GTA textures are 512x512, so rendering them at higher resolutions won't necessarily improve general image quality.
 
+# FAQ
+### Can it render weapons, props and other objects?
+No, this tool is designed to render clothes only. It won't work with other types of models.
+
+### Can it render models with custom shaders?
+No, this tool doesn't support GTA 5 shaders. Renders might appear weird or even throw errors during rendering.
+
+### Can it render models with high polygon counts?
+Yes, but it's not recommended. High polygon counts may cause performance issues and even crashes. It's essential to keep polygon counts as low as possible.
+
+### Error: unsupported FourCC code
+This means texture of your drawable contains unsupported texture compression. You need to convert your .dds's to DXT1, DXT3 or DXT5 format using, for example, [Paint.NET](https://www.getpaint.net/).
 
 
 # Issues
