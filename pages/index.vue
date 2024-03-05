@@ -1,9 +1,10 @@
 <script lang="ts">
 import { defineComponent } from 'vue';
 import * as THREE from 'three';
-import { DDSLoader } from "~/libraries/DDSLoader";
+import { DDSLoader } from "~/assets/js/libraries/DDSLoader";
 import { markRaw } from "vue";
 import * as JSZip from "jszip";
+import { readFileAsDataURL, readFileAsText, readDirectory } from "~/assets/ts/codewalker/fileSystem";
 
 export default defineComponent({
   name: "three",
@@ -630,9 +631,9 @@ export default defineComponent({
       }
     },
 
-    async findNormalMap(entries, modelName, filename) {
+    async findNormalMap(entries: FileSystemEntry[], modelName: string, filename: string) {
       for (let entry of entries) {
-        if (entry.isFile) {
+        if (entry.isDirectory === false) {
           continue;
         }
 
@@ -640,7 +641,7 @@ export default defineComponent({
           continue;
         }
 
-        let content = await this.readDirectory(entry);
+        let content = await readDirectory(entry);
 
         for (let item of content) {
           if (!item.isFile) {
@@ -648,50 +649,12 @@ export default defineComponent({
           }
 
           if (item.name === filename) {
-            return await this.readFile(item);
+            return await readFileAsDataURL(item);
           }
         }
       }
 
       return null;
-    },
-
-    async readFile(fileEntry, asText = false) {
-      return new Promise((resolve) => {
-        fileEntry.file((file) => {
-          let reader = new FileReader();
-
-          reader.onload = (e) => {
-            resolve(e.target.result);
-          }
-
-          if (asText) {
-            reader.readAsText(file);
-          } else {
-            reader.readAsDataURL(file);
-          }
-        });
-      });
-    },
-
-    readDirectory(directory) {
-      let directoryReader = directory.createReader();
-
-      let res = [];
-
-      return new Promise((resolve) => {
-        let cb = (entries) => {
-          if (entries.length) {
-            res.push(...entries);
-
-            directoryReader.readEntries(cb);
-          } else {
-            resolve(res);
-          }
-        };
-
-        directoryReader.readEntries(cb);
-      });
     },
 
     isTextureDirectory(name) {
@@ -725,7 +688,7 @@ export default defineComponent({
           continue;
         }
 
-        let directoryContent = await this.readDirectory(entries[i]);
+        let directoryContent = await readDirectory(entries[i]);
 
         for (let item of directoryContent) {
 
@@ -737,7 +700,7 @@ export default defineComponent({
             continue;
           }
 
-          let content = await this.readFile(item);
+          let content = await readFileAsDataURL(item);
 
           result.push({
             fileName: item.name,
@@ -794,7 +757,7 @@ export default defineComponent({
       let {
         normalMapFilename,
         specularMapFilename
-      } = this.loadDrawableXml(drawable.name, await this.readFile(drawable, true));
+      } = this.loadDrawableXml(drawable.name, await readFileAsDataURL(drawable));
 
       let textures = await this.findTextures(entries, drawableName);
 
@@ -869,7 +832,7 @@ export default defineComponent({
       let {
         normalMapFilename,
         specularMapFilename
-      } = this.loadDrawableXml(drawable.name, await this.readFile(drawable, true));
+      } = this.loadDrawableXml(drawable.name, await readFileAsText(drawable));
 
       let normalMap = await this.findNormalMap(entries, drawableName, normalMapFilename);
 
@@ -949,7 +912,7 @@ export default defineComponent({
     },
 
     async traverseDirs(dir, zip, zipFolderName) {
-      let entries = await this.readDirectory(dir);
+      let entries = await readDirectory(dir);
 
       let drawables = await this.findDrawables(entries);
       // let ydrs = await this.findYdrs(entries);
@@ -980,7 +943,7 @@ export default defineComponent({
       this.status.isWorking = true;
 
       if (item.isDirectory) {
-        let entries = await this.readDirectory(item);
+        let entries = await readDirectory(item);
 
         let drawables = await this.findDrawables(entries);
 
