@@ -67,7 +67,7 @@ export default defineComponent({
   },
   methods: {
     renderCurrentModel() {
-      console.log(this.scene);
+      // console.log(this.scene);
 
       if (this.debugCamera) {
         // if (false) {
@@ -240,7 +240,7 @@ export default defineComponent({
       let tangentOffset = offsets['Tangent'];
       let normalOffset = offsets['Normal'];
 
-      console.log('offsets', offsets);
+      // console.log('offsets', offsets);
 
       let uvWarnings = [];
 
@@ -254,7 +254,6 @@ export default defineComponent({
         item = item.split(' ');
 
         if (!item || !item[0]) {
-          console.log(item[0]);
           continue;
         }
 
@@ -836,6 +835,12 @@ export default defineComponent({
       zipDrawableFolder.file(`${drawableName}.png`, blob);
     },
 
+    loadUvTexture() {
+      return new Promise((resolve) => {
+        (new THREE.TextureLoader()).load('/textures/uv_test.png', resolve);
+      });
+    },
+
     async processYdd(entries, zip, zipFolder, drawable) {
       console.groupCollapsed(`Processing ${drawable.name}`);
 
@@ -886,8 +891,7 @@ export default defineComponent({
 
         textures = [
           {
-            fileName: 'uv_test.dds',
-            content: '/textures/uv_test.png',
+            fileName: 'uv_test.png',
           }
         ];
       }
@@ -899,11 +903,14 @@ export default defineComponent({
           let loadedTexture;
 
           if (texture.fileName.endsWith('.dds')) {
-            loadedTexture = await this.loadTexture(texture.fileName, texture.content)
+            try {
+              loadedTexture = await this.loadTexture(texture.fileName, texture.content);
+            } catch (e) {
+              console.error(e);
+              loadedTexture = await this.loadUvTexture();
+            }
           } else {
-            loadedTexture = await new Promise((resolve) => {
-              (new THREE.TextureLoader()).load(texture.content, resolve);
-            });
+            loadedTexture = await this.loadUvTexture();
           }
 
           if (!this.material) {
