@@ -9,11 +9,30 @@ import { parseCodewalkerYdd } from "~/assets/ts/codewalker/parser";
 import type {
   ICodewalkerTextureDictionaryItem
 } from "~/assets/ts/codewalker/interfaces/ICodewalkerTextureDictionaryItem";
-import { ClampToEdgeWrapping, MirroredRepeatWrapping } from "three/src/constants";
+import type { IGeometryData } from "assets/ts/codewalker/interfaces/IGeometryData";
+
+interface IComponentData {
+  scene: THREE.Scene;
+  perspectiveCamera: THREE.PerspectiveCamera;
+  orthographicCamera: THREE.OrthographicCamera;
+  group: THREE.Group;
+  cameraHelper: THREE.CameraHelper | null;
+  renderer: THREE.WebGLRenderer | null;
+  ddsLoader: DDSLoader | null;
+  status: {
+    generateZip: boolean;
+    isWorking: boolean;
+    currentFolder: number;
+    totalFolders: number;
+    currentDrawable: number;
+    totalDrawables: number;
+  };
+  currentFolder: string;
+}
 
 export default defineComponent({
   name: "three",
-  data: () => ({
+  data: (): IComponentData => ({
     scene: markRaw(new THREE.Scene()),
     perspectiveCamera: markRaw(new THREE.PerspectiveCamera(75, 1, 0.1, 1000)),
     orthographicCamera: markRaw(new THREE.OrthographicCamera(-10, 10, 10, -10)),
@@ -75,7 +94,7 @@ export default defineComponent({
     directionalLight2.position.set(-2, -2, -2);
     this.scene.add(directionalLight2);
 
-    const alight = new THREE.AmbientLight(0x717171); // soft white light
+    const alight = new THREE.AmbientLight(0x606060);
     this.scene.add(alight);
 
     this.scene.add(this.group);
@@ -83,9 +102,9 @@ export default defineComponent({
   methods: {
     renderCurrentModel() {
       if (this.orthographicCamera) {
-        this.renderer.render(this.scene, this.orthographicCamera);
+        this.renderer!.render(this.scene, this.orthographicCamera);
       } else {
-        this.renderer.render(this.scene, this.perspectiveCamera);
+        this.renderer!.render(this.scene, this.perspectiveCamera);
       }
     },
 
@@ -101,7 +120,7 @@ export default defineComponent({
       console.time(`Loading ${filename}`);
 
       return new Promise<THREE.Texture>((resolve, reject) => {
-        this.ddsLoader.load(
+        this.ddsLoader!.load(
             content,
             // onload
             (texture) => {
@@ -162,7 +181,7 @@ export default defineComponent({
       }
     },
 
-    async findNormalMap(entries: FileSystemEntry[], modelName: string, filename: string) {
+    async findDrawableAsset(entries: FileSystemEntry[], modelName: string, filename: string) {
       for (let entry of entries) {
         if (entry.isDirectory === false) {
           continue;
@@ -263,9 +282,9 @@ export default defineComponent({
       return res;
     },
 
-    loadUvTexture() {
-      return new Promise<THREE.Texture>((resolve) => {
-        (new THREE.TextureLoader()).load('/textures/uv_test.png', resolve);
+    loadUvTexture(): Promise<THREE.Texture> {
+      return new Promise((resolve, reject) => {
+        (new THREE.TextureLoader()).load('/textures/uv_test.png', resolve, undefined, reject);
       });
     },
 
@@ -277,6 +296,37 @@ export default defineComponent({
       }
 
       throw new Error('Texture dictionary item not found');
+    },
+
+    createGeometryFromYdd(data: IGeometryData) {
+      let geometry = new THREE.BufferGeometry();
+
+      geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(data.vertices), 3));
+      geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(data.uvs[0]), 2));
+
+      if (data.uvs.length >= 2) {
+        for (let i = 1; i < data.uvs.length; i++) {
+          geometry.setAttribute(`uv${i}`, new THREE.BufferAttribute(new Float32Array(data.uvs[i]), 2));
+        }
+      }
+
+      geometry.setIndex(data.indices);
+
+      if (data.normals) {
+        geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(data.normals), 3));
+      } else {
+        console.warn('Cannot find normals, computing them');
+        geometry.computeVertexNormals();
+      }
+
+      // some models exported from codewalker have NaN tangents
+      // if (geometryData.tangent) {
+      //   geometry.setAttribute('tangent', new THREE.BufferAttribute(new Float32Array(geometryData.tangent), 4));
+      // }
+
+      geometry.computeTangents();
+
+      return geometry;
     },
 
     async processYdd(entries: FileSystemEntry[], zip: any, zipFolder: any, drawableXmlFile: FileSystemFileEntry) {
@@ -302,32 +352,7 @@ export default defineComponent({
       let material = this.createMaterial();
 
       for (let geometryData of yddData.geometries) {
-        let geometry = new THREE.BufferGeometry();
-
-        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(geometryData.vertices), 3));
-        geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(geometryData.uvs[0]), 2));
-
-        if (geometryData.uvs.length >= 2) {
-          for (let i = 1; i < geometryData.uvs.length; i++) {
-            geometry.setAttribute(`uv${i}`, new THREE.BufferAttribute(new Float32Array(geometryData.uvs[i]), 2));
-          }
-        }
-
-        geometry.setIndex(geometryData.indices);
-
-        if (geometryData.normals) {
-          geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(geometryData.normals), 3));
-        } else {
-          console.warn('Cannot find normals, computing them');
-          geometry.computeVertexNormals();
-        }
-
-        // some models exported from codewalker have NaN tangents
-        // if (geometryData.tangent) {
-        //   geometry.setAttribute('tangent', new THREE.BufferAttribute(new Float32Array(geometryData.tangent), 4));
-        // }
-
-        geometry.computeTangents();
+        let geometry = this.createGeometryFromYdd(geometryData);
 
         if (yddData.shaderGroup && yddData.shaderGroup.textureDictionary) {
           let shaders = yddData.shaderGroup.shaders[geometryData.shaderIndex];
@@ -335,7 +360,7 @@ export default defineComponent({
           if (shaders.parameters?.BumpSampler) {
             let dict = this.getTextureDictionaryByShaderItemName(shaders.parameters.BumpSampler, yddData.shaderGroup!.textureDictionary);
 
-            let normalMap = await this.findNormalMap(entries, drawableName, dict.filename!);
+            let normalMap = await this.findDrawableAsset(entries, drawableName, dict.filename!);
 
             if (normalMap !== null) {
               let texture = await this.loadTexture(drawableName, normalMap);
@@ -352,7 +377,7 @@ export default defineComponent({
           if (shaders.parameters?.SpecSampler) {
             let dict = this.getTextureDictionaryByShaderItemName(shaders.parameters.SpecSampler, yddData.shaderGroup!.textureDictionary);
 
-            let specularMap = await this.findNormalMap(entries, drawableName, dict.filename!);
+            let specularMap = await this.findDrawableAsset(entries, drawableName, dict.filename!);
 
             if (specularMap !== null) {
               let texture = await this.loadTexture(drawableName, specularMap);
