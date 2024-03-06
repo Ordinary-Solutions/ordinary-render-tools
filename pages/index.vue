@@ -4,7 +4,11 @@ import * as THREE from 'three';
 import { DDSLoader } from "~/assets/js/libraries/DDSLoader";
 import { markRaw } from "vue";
 import * as JSZip from "jszip";
-import { readFileAsDataURL, readFileAsText, readDirectory } from "~/assets/ts/codewalker/fileSystem";
+import { readFileAsDataURL, readFileAsText, readDirectory } from "~/assets/ts/fileSystem";
+import { parseCodewalkerYdd } from "~/assets/ts/codewalker/parser";
+import type {
+  ICodewalkerTextureDictionaryItem
+} from "~/assets/ts/codewalker/interfaces/ICodewalkerTextureDictionaryItem";
 
 export default defineComponent({
   name: "three",
@@ -12,8 +16,8 @@ export default defineComponent({
     // geometry: null,
     meshes: markRaw([]),
     scene: null,
-    camera: null,
-    debugCamera: null,
+    perspectiveCamera: null,
+    orthographicCamera: null,
     texture: null,
     normalMap: null,
     specularMap: null,
@@ -25,6 +29,8 @@ export default defineComponent({
     currentFolder: null,
 
     renderer: null,
+
+    ddsLoader: null,
 
     status: {
       generateZip: false,
@@ -40,32 +46,32 @@ export default defineComponent({
   async mounted() {
     this.scene = markRaw(new THREE.Scene());
     // this.scene.background = new THREE.Color(0x00ff00);
-    this.camera = markRaw(new THREE.PerspectiveCamera(75, 1, 0.1, 1000));
+    this.perspectiveCamera = markRaw(new THREE.PerspectiveCamera(75, 1, 0.1, 1000));
     // this.cameraHelper = markRaw(new THREE.CameraHelper(this.camera));
     // this.scene.add(this.cameraHelper);
 
-    this.debugCamera = markRaw(new THREE.OrthographicCamera(-10, 10, 10, -10));
+    this.orthographicCamera = markRaw(new THREE.OrthographicCamera(-10, 10, 10, -10));
     // this.debugCamera.position.x = 0;
     // this.debugCamera.position.y = -2;
-    this.debugCamera.position.x = 0;
-    this.debugCamera.position.y = -2;
-    this.debugCamera.position.z = 0;
+    this.orthographicCamera.position.x = 0;
+    this.orthographicCamera.position.y = -2;
+    this.orthographicCamera.position.z = 0;
     // this.cameraHelper = markRaw(new THREE.CameraHelper(this.debugCamera));
     // this.scene.add(this.cameraHelper);
 
+    let manager = new THREE.LoadingManager();
+    manager.addHandler(/\.dds$/i, new DDSLoader());
+
+    this.ddsLoader = new DDSLoader(manager);
+
     this.renderer = new THREE.WebGLRenderer({
-      canvas: this.$refs.canvas,
+      canvas: this.$refs.canvas! as HTMLCanvasElement,
       antialias: true,
       alpha: true,
       powerPreference: 'high-performance',
     });
 
     this.renderer.setSize(1024, 1024);
-
-    let manager = new THREE.LoadingManager();
-    manager.addHandler(/\.dds$/i, new DDSLoader());
-
-    // console.log(manager);
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
     directionalLight.position.set(-2, -2, 5);
@@ -76,353 +82,15 @@ export default defineComponent({
     this.scene.add(directionalLight2);
 
     const alight = new THREE.AmbientLight(0x717171); // soft white light
-    // const alight = new THREE.AmbientLight(0xffffff); // soft white light
     this.scene.add(alight);
   },
   methods: {
     renderCurrentModel() {
-      // console.log(this.scene);
-
-      if (this.debugCamera) {
-        // if (false) {
-        this.renderer.render(this.scene, this.debugCamera);
+      if (this.orthographicCamera) {
+        this.renderer.render(this.scene, this.orthographicCamera);
       } else {
-        this.renderer.render(this.scene, this.camera);
+        this.renderer.render(this.scene, this.perspectiveCamera);
       }
-    },
-
-    getDrawableLayoutOffsets(doc) {
-      doc = doc.querySelector('Layout');
-
-      let layoutProperties = {
-        Position: 3, // Vector3
-        BlendWeights: 4, // Color4
-        BlendIndices: 4, // Color4
-        Normal: 3, // Vector3
-        Colour0: 4, // Color4
-        Colour1: 4, // Color4
-        TexCoord0: 2, // Vector2
-        Tangent: 4, // Vector4
-      };
-
-      let offsets = {};
-
-      let currentOffset = 0;
-
-      for (let child of doc.children) {
-        if (layoutProperties.hasOwnProperty(child.tagName)) {
-          offsets[child.tagName] = currentOffset;
-          currentOffset += layoutProperties[child.tagName];
-        }
-      }
-
-      return offsets;
-    },
-
-    getDrawableNormalMapNameTagValue(doc) {
-      let shaders = doc.querySelector('Shaders');
-
-      if (!shaders) {
-        return null;
-      }
-
-      let parameters = shaders.querySelector('Parameters');
-
-      if (!parameters) {
-        return null;
-      }
-
-      let param = parameters.querySelector('Item[name=BumpSampler]');
-
-      if (!param) {
-        return null;
-      }
-
-      let name = param.querySelector('Name');
-
-      if (!name) {
-        return null;
-      }
-
-      return name.innerHTML;
-    },
-
-    getDrawableSpecularMapNameTagValue(doc) {
-      let shaders = doc.querySelector('Shaders');
-
-      if (!shaders) {
-        return null;
-      }
-
-      let parameters = shaders.querySelector('Parameters');
-
-      if (!parameters) {
-        return null;
-      }
-
-      let param = parameters.querySelector('Item[name=SpecSampler]');
-
-      if (param) {
-        return param.querySelector('Name').innerHTML;
-      }
-
-      return null;
-    },
-
-    getFilenameByNameValue(doc, nameValue) {
-      doc = doc.querySelector('TextureDictionary');
-
-      if (!doc) {
-        console.warn('No TextureDictionary found');
-        return null;
-      }
-
-      for (let item of doc.children) {
-        if (item.tagName !== 'Item') {
-          throw new Error('Invalid tagName');
-        }
-
-        let name = item.querySelector('Name');
-
-        if (name.innerHTML === nameValue) {
-          return item.querySelector('FileName').innerHTML;
-        }
-      }
-
-      return null;
-    },
-
-    // Verticies, UVs, Indexes from xml, every item
-    getGeometriesData(el) {
-      let indexBuffer = el.querySelector('IndexBuffer');
-      let indexEl = indexBuffer.querySelector('Data');
-
-      if (!indexEl) {
-        indexEl = indexBuffer.querySelector('Data2');
-
-        if (!indexEl) {
-          console.error('No index data found');
-          return;
-        }
-      }
-
-      let indexData = indexEl.innerHTML;
-
-      indexData = indexData.split('\n').join(' ');
-      indexData = indexData.replace(/ +(?= )/g, '');
-      indexData = indexData.trim().split(' ');
-
-      el = el.querySelector('VertexBuffer');
-      let offsets = this.getDrawableLayoutOffsets(el);
-
-      if (!offsets.hasOwnProperty('Position') || !offsets.hasOwnProperty('TexCoord0')) {
-        console.error('Invalid offsets', offsets);
-        return;
-      }
-
-      let vertexBufferEl = el.querySelector('Data');
-
-      if (!vertexBufferEl) {
-        vertexBufferEl = el.querySelector('Data2');
-      }
-
-      if (!vertexBufferEl) {
-        console.error('No vertex buffer data found');
-        return;
-      }
-
-      let plain = vertexBufferEl.innerHTML.replace(/ +(?= )/g, '');
-
-      let strings = plain.split('\n');
-      strings = strings.map((str) => str.trim()).filter((str) => str.length > 0);
-
-      // console.log(strings.length);
-
-      let positionOffset = offsets['Position'];
-      let uvOffset = offsets['TexCoord0'];
-      let uv2Offset = offsets['TexCoord1'];
-      let tangentOffset = offsets['Tangent'];
-      let normalOffset = offsets['Normal'];
-
-      let parseTangent = true;
-
-      // console.log('offsets', offsets);
-
-      let uvWarnings = [];
-
-      let vertices = new Float32Array(strings.length * 3);
-      let uv = new Float32Array(strings.length * 2);
-      let uv2 = new Float32Array(strings.length * 2);
-      let tangent = new Float32Array(strings.length * 4);
-      let normals = new Float32Array(strings.length * 3);
-
-      let indexes = [];
-
-      for (let currentIndex in strings) {
-        let item = strings[currentIndex];
-
-        item = item.trim();
-
-        item = item.split(' ');
-
-        if (!item || !item[0]) {
-          throw new Error('Never but what if it happens');
-        }
-
-        let [vx, vy, vz] = [parseFloat(item[positionOffset]), parseFloat(item[positionOffset + 1]), parseFloat(item[positionOffset + 2])];
-
-        if (isNaN(vx) || isNaN(vy) || isNaN(vz)) {
-          throw new Error('VertexBuffer has not-a-numbers');
-        }
-
-        vertices[currentIndex * 3] = vx;
-        vertices[currentIndex * 3 + 1] = vy;
-        vertices[currentIndex * 3 + 2] = vz;
-
-        let uvValue = parseFloat(item[uvOffset]);
-        let uvValue2 = parseFloat(item[uvOffset + 1]);
-
-        // TODO: фиксит berd_007 и другие маски из mpvinewood.
-        // надо разобраться и написать нормальный код
-        if (uvValue > 1 || uvValue < 0) {
-          uvValue = uvValue % 1;
-
-          if (uvValue < 0) {
-            uvValue = 1 + uvValue;
-          }
-        }
-
-        uv[currentIndex * 2] = uvValue;
-        uv[currentIndex * 2 + 1] = uvValue2;
-
-        if (uv2Offset !== undefined) {
-          let uv2Value = parseFloat(item[uv2Offset]);
-          let uv2Value2 = parseFloat(item[uv2Offset + 1]);
-
-          uv2[currentIndex * 2] = uv2Value;
-          uv2[currentIndex * 2 + 1] = uv2Value2;
-        }
-
-        // low quality mods have no tangents (or they're 0 0 0 0), disabled until UI is implemented
-        // if (tangent !== undefined && parseTangent === true) {
-        //   let tangentX = parseFloat(item[tangentOffset]);
-        //   let tangentY = parseFloat(item[tangentOffset + 1]);
-        //   let tangentZ = parseFloat(item[tangentOffset + 2]);
-        //   let tangentsUNK = parseFloat(item[tangentOffset + 3]);
-        //
-        //   // sometimes codewalker produces invalid tangent data, so we need to handle this
-        //   if (isNaN(tangentX) || isNaN(tangentY) || isNaN(tangentZ) || isNaN(tangentsUNK)) {
-        //     console.warn('Tangent is NaN, ignoring next tangents');
-        //     parseTangent = false;
-        //     tangent = [];
-        //   }
-        //
-        //   if (parseTangent) {
-        //     tangent.push(tangentX, tangentY, tangentZ, tangentsUNK);
-        //   }
-        // }
-
-        if (normalOffset !== undefined) {
-          let normalX = parseFloat(item[normalOffset]);
-          let normalY = parseFloat(item[normalOffset + 1]);
-          let normalZ = parseFloat(item[normalOffset + 2]);
-
-          if (isNaN(normalX) || isNaN(normalY) || isNaN(normalZ)) {
-            console.log(normalX, normalY, normalZ);
-            throw new Error('Cannot parse normal');
-          }
-
-          normals[currentIndex * 3] = normalX;
-          normals[currentIndex * 3 + 1] = normalY;
-          normals[currentIndex * 3 + 2] = normalZ;
-        }
-      }
-
-      indexes = indexData.map(index => parseInt(index));
-
-      if (uvWarnings.length) {
-        console.warn('UV warnings', offsets, uvWarnings);
-      }
-
-      if (vertices.length > 10000) {
-        console.warn('Too many vertices', vertices.length);
-      }
-
-      return {
-        vertices,
-        uv,
-        uv2,
-        indexes,
-        tangent,
-        normals,
-      }
-    },
-
-    loadDrawableXml(_fileName, content) {
-      for (let mesh of this.meshes) {
-        mesh.geometry.dispose();
-        mesh.material.dispose();
-
-        this.scene.remove(mesh);
-      }
-
-      this.meshes = markRaw([]);
-
-      const parser = new DOMParser();
-
-      let xmlDoc = parser.parseFromString(content, "text/xml");
-
-      let normalMapNameValue = this.getDrawableNormalMapNameTagValue(xmlDoc);
-      let normalMapName = this.getFilenameByNameValue(xmlDoc, normalMapNameValue);
-
-      let specularMapNameValue = this.getDrawableNormalMapNameTagValue(xmlDoc);
-      let specularMapName = this.getFilenameByNameValue(xmlDoc, specularMapNameValue);
-
-      let el = xmlDoc.querySelector('DrawableModelsHigh');
-
-      el = el.querySelector('Item');
-      el = el.querySelector('Geometries');
-
-      for (let geometryXml of el.children) {
-        let { vertices, uv, uv2, indexes, tangent, normals } = this.getGeometriesData(geometryXml);
-
-        // console.log(vertices, uv, uv2, indexes, tangent, normals);
-
-        let geometry = markRaw(new THREE.BufferGeometry());
-
-        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-        geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-
-        if (uv2 && uv2.length) {
-          // uv2 = new Float32Array(uv2);
-          geometry.setAttribute('uv3', new THREE.BufferAttribute(uv2, 2));
-        }
-
-        geometry.setIndex(indexes);
-
-        // if (tangent && tangent.length) {
-        //   geometry.setAttribute('tangent', new THREE.BufferAttribute(tangent, 4));
-        // }
-
-        if (normals && normals.length) {
-          geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-        } else {
-          geometry.computeVertexNormals();
-          console.warn('Cannot find normals, computing them');
-        }
-
-        if (!this.material) {
-          this.material = this.createMaterial();
-        }
-
-        let mesh = markRaw(new THREE.Mesh(geometry, this.material));
-        this.group.add(mesh);
-      }
-
-      return {
-        normalMapFilename: normalMapName,
-        specularMapFilename: specularMapName,
-      };
     },
 
     createMaterial() {
@@ -432,64 +100,11 @@ export default defineComponent({
       }));
     },
 
-    loadNormalMap(filename, content) {
-      console.log(`Loading ${filename} as normal map`);
-
-      let manager = new THREE.LoadingManager();
-      manager.addHandler(/\.dds$/i, new DDSLoader());
-
-      return new Promise((resolve, reject) => {
-        new DDSLoader(manager).load(content,
-            (texture) => {
-              if (!this.material) {
-                this.material = this.createMaterial();
-              }
-
-              this.material.normalMap = texture;
-              this.material.needsUpdate = true;
-
-              resolve(texture);
-            },
-            undefined,
-            (e) => {
-              reject(e);
-            });
-      });
-    },
-
-    loadSpecularMap(filename, content) {
-      console.log(`Loading ${filename} as specular map`);
-
-      let manager = new THREE.LoadingManager();
-      manager.addHandler(/\.dds$/i, new DDSLoader());
-
-      return new Promise((resolve, reject) => {
-        new DDSLoader(manager).load(content,
-            (texture) => {
-              if (!this.material) {
-                this.material = this.createMaterial();
-              }
-
-              // this.material.specularMap = texture;
-              // this.material.needsUpdate = true;
-
-              resolve(texture);
-            },
-            undefined,
-            (e) => {
-              reject(e);
-            });
-      });
-    },
-
-    async loadTexture(filename, content) {
+    async loadTexture(filename: string, content: string) {
       console.log(`Loading ${filename} as texture`);
 
-      return new Promise((resolve, reject) => {
-        let manager = new THREE.LoadingManager();
-        manager.addHandler(/\.dds$/i, new DDSLoader());
-
-        new DDSLoader(manager).load(
+      return new Promise<THREE.Texture>((resolve, reject) => {
+        this.ddsLoader.load(
             content,
             // onload
             (texture) => {
@@ -505,85 +120,21 @@ export default defineComponent({
       });
     },
 
-    async clearCurrentScene() {
-      if (!this.scene) {
-        return;
-      }
-
-      // for (let mesh of this.meshes) {
-      //   mesh.geometry.dispose();
-      //   mesh.material.dispose();
-      //
-      //   this.scene.remove(mesh);
-      // }
-
-      this.meshes = markRaw([]);
-
-      // this.scene.dispose();
-      //
-      // this.scene = markRaw(new THREE.Scene());
-    },
-
-    pointFrustumAtGeometry() {
-      // if (!this.meshes || !this.meshes[0]) {
-      //   return;
-      // }
-
+    setCameraLookAtGroup(group: THREE.Group) {
       let middle = new THREE.Vector3();
 
-      let bb = (new THREE.Box3()).setFromObject(this.group);
+      let bb = (new THREE.Box3()).setFromObject(group);
 
       middle.x = (bb.max.x + bb.min.x) / 2;
       middle.y = (bb.max.y + bb.min.y) / 2;
       middle.z = (bb.max.z + bb.min.z) / 2;
 
-      let worldOrigin = this.group.localToWorld(middle);
+      let worldOrigin = group.localToWorld(middle);
 
-      // if (this.meshes.length > 1) {
-      //   let delta = new THREE.Vector3().subVectors(this.meshes[0].position, worldOrigin);
-      //
-      //   for (let i = 1; i < this.meshes.length; i++) {
-      //     this.meshes[i].position.add(delta);
-      //   }
-      // }
+      group.position.x -= worldOrigin.x;
+      group.position.y -= worldOrigin.y;
+      group.position.z -= worldOrigin.z;
 
-      // this.meshes[0].position.x = -worldOrigin.x;
-      // this.meshes[0].position.y = -worldOrigin.y;
-      // this.meshes[0].position.z = -worldOrigin.z;
-      this.group.position.x -= worldOrigin.x;
-      this.group.position.y -= worldOrigin.y;
-      this.group.position.z -= worldOrigin.z;
-
-      // var boundingSphere = new THREE.Sphere();
-      // geometry.boundingBox.getBoundingSphere(boundingSphere);
-      // console.log(boundingSphere);
-
-// Get the radius of the bounding sphere
-//       var radius = boundingSphere.radius;
-
-      // console.log('radius', radius);
-
-// Calculate the camera distance using the vertical field of view and aspect ratio of the camera
-//       var verticalFOV = this.camera.fov * Math.PI / 180; // Convert fov to radians
-//       var distance = radius / Math.sin(verticalFOV / 2);
-
-// Calculate the horizontal distance
-//       var horizontalDistance = distance / Math.sqrt(1 + Math.pow(this.camera.aspect, 2));
-
-// Use the maximum distance as the camera's distance to the bounding sphere's center
-//       var cameraDistance = Math.max(distance, horizontalDistance);
-
-
-      // console.log(cameraDistance);
-// Set the camera's position
-//       this.camera.position.copy(boundingSphere.center);
-//       console.log(this.camera);
-//       this.camera.position.y = -cameraDistance;
-//       this.camera.lookAt(new THREE.Vector3(0, 0, 0));
-      // console.log(this.camera);
-//       this.camera.updateProjectionMatrix();
-
-      // let meshBbWidth = Math.abs(geometry.boundingBox.max.y) + Math.abs(geometry.boundingBox.min.y);
       let bbSizeX = bb.max.x - bb.min.x;
       let bbSizeY = bb.max.z - bb.min.z;
       let bbSizeZ = bb.max.z - bb.min.z;
@@ -593,37 +144,19 @@ export default defineComponent({
       // let bbHelper = new THREE.BoxHelper(this.meshes[0], 0xff0000);
       // this.scene.add(bbHelper);
 
-      // let fovRadians = this.camera.fov * (Math.PI / 180);
-      //
-      // let distance = (bbSize / 2) / Math.tan(fovRadians / 2);
-      //
-      // this.camera.position.y = -distance;
-      // this.camera.lookAt(new THREE.Vector3(0, 0, 0));
-      //
-      // console.log(geometry.boundingBox);
+      if (this.orthographicCamera) {
+        this.orthographicCamera.position.x = 0;
+        this.orthographicCamera.position.y = -2;
+        this.orthographicCamera.position.z = 0;
+        this.orthographicCamera.bottom = -bbSize / 2;
+        this.orthographicCamera.top = bbSize / 2;
+        this.orthographicCamera.left = -bbSize / 2;
+        this.orthographicCamera.right = bbSize / 2;
 
-      if (this.debugCamera) {
-        this.debugCamera.position.x = 0;
-        this.debugCamera.position.y = -2;
-        this.debugCamera.position.z = 0;
-        this.debugCamera.bottom = -bbSize / 2;
-        this.debugCamera.top = bbSize / 2;
-        this.debugCamera.left = -bbSize / 2;
-        this.debugCamera.right = bbSize / 2;
+        this.orthographicCamera.up.set(0, 0, 1);
+        this.orthographicCamera.lookAt(new THREE.Vector3(0, 0, 0));
 
-        // const viewport = 10;
-        //
-        // this.debugCamera.bottom = -viewport;
-        // this.debugCamera.top = viewport;
-        // this.debugCamera.left = -viewport;
-        // this.debugCamera.right = viewport;
-
-        // this.debugCamera.position = new THREE.Vector3(0, -5, 0);
-
-        this.debugCamera.up.set(0, 0, 1);
-        this.debugCamera.lookAt(new THREE.Vector3(0, 0, 0));
-
-        this.debugCamera.updateProjectionMatrix();
+        this.orthographicCamera.updateProjectionMatrix();
       }
 
       if (this.cameraHelper) {
@@ -641,7 +174,7 @@ export default defineComponent({
           continue;
         }
 
-        let content = await readDirectory(entry);
+        let content = await readDirectory(entry as FileSystemDirectoryEntry);
 
         for (let item of content) {
           if (!item.isFile) {
@@ -649,7 +182,7 @@ export default defineComponent({
           }
 
           if (item.name === filename) {
-            return await readFileAsDataURL(item);
+            return await readFileAsDataURL(item as FileSystemFileEntry);
           }
         }
       }
@@ -657,24 +190,26 @@ export default defineComponent({
       return null;
     },
 
-    isTextureDirectory(name) {
+    isTextureDirectory(name: string) {
       return name.endsWith('_uni') || name.endsWith('_whi');
     },
 
-    canvasToPng() {
+    canvasToPng(): Promise<Blob> {
       return new Promise((resolve) => {
-        this.$refs.canvas.toBlob((blob) => {
+        this.$refs.canvas!.toBlob((blob: Blob) => {
           resolve(blob);
         }, 'image/png');
       });
     },
 
-    async findTextures(entries, modelName) {
+    async findTextures(entries: FileSystemEntry[], modelName: string) {
       let modelNameSegments = modelName.split('_');
 
       modelNameSegments.splice(-1, 0, 'diff');
 
       modelName = modelNameSegments.join('_');
+      modelName = modelName.replace('_u', '');
+      modelName = modelName.replace('_r', '');
 
       let result = [];
 
@@ -688,7 +223,7 @@ export default defineComponent({
           continue;
         }
 
-        let directoryContent = await readDirectory(entries[i]);
+        let directoryContent = await readDirectory(entries[i] as FileSystemDirectoryEntry);
 
         for (let item of directoryContent) {
 
@@ -700,7 +235,7 @@ export default defineComponent({
             continue;
           }
 
-          let content = await readFileAsDataURL(item);
+          let content = await readFileAsDataURL(item as FileSystemFileEntry);
 
           result.push({
             fileName: item.name,
@@ -712,7 +247,7 @@ export default defineComponent({
       return result;
     },
 
-    async findDrawables(entries) {
+    async findDrawables(entries: FileSystemFileEntry[]) {
       let res = [];
 
       for (let entry of entries) {
@@ -730,145 +265,126 @@ export default defineComponent({
       return res;
     },
 
-    async findYdrs(entries) {
-      let res = [];
-
-      for (let entry of entries) {
-        if (!entry.isFile) {
-          continue;
-        }
-
-        if (!entry.name.endsWith('.ydr.xml')) {
-          continue;
-        }
-
-        res.push(entry);
-      }
-
-      return res;
-    },
-
-    async processYdr(entries, zip, zipFolder, drawable) {
-      let drawableFileName = drawable.name;
-      let drawableName = drawableFileName.replace('.ydr.xml', '');
-
-      let zipDrawableFolder = zipFolder.folder(drawableName);
-
-      let {
-        normalMapFilename,
-        specularMapFilename
-      } = this.loadDrawableXml(drawable.name, await readFileAsDataURL(drawable));
-
-      let textures = await this.findTextures(entries, drawableName);
-
-      this.pointFrustumAtGeometry();
-
-      let material = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-      });
-
-      // console.log(textures);
-      for (let texture of textures) {
-        // if (!["w_ar_specialcarbinemk2_l1.dds"].includes(texture.fileName)) {
-        //   continue;
-        // }
-
-        if (texture.fileName === 'w_ar_specialcarbinemk2_l1_n.dds') {
-          let loadedTexture = await this.loadTexture(texture.fileName, texture.content);
-          material.normalMap = loadedTexture;
-
-          console.log('normal map');
-        }
-
-        if (texture.fileName === 'w_ar_specialcarbinemk2_s.dds') {
-          let loadedTexture = await this.loadTexture(texture.fileName, texture.content);
-          material.map = loadedTexture;
-
-          console.log('normal map');
-        }
-
-        if (texture.fileName === 'w_ar_specialcarbinemk2_l1_s.dds') {
-          let loadedTexture = await this.loadTexture(texture.fileName, texture.content);
-          // material.specularMap = loadedTexture;
-
-          console.log('normal map');
-        }
-      }
-
-      for (let mesh of this.meshes) {
-        mesh.material = material;
-      }
-
-      this.renderCurrentModel();
-
-      let blob = await this.canvasToPng();
-      zipDrawableFolder.file(`${drawableName}.png`, blob);
-    },
-
     loadUvTexture() {
-      return new Promise((resolve) => {
+      return new Promise<THREE.Texture>((resolve) => {
         (new THREE.TextureLoader()).load('/textures/uv_test.png', resolve);
       });
     },
 
-    async processYdd(entries, zip, zipFolder, drawable) {
-      console.groupCollapsed(`Processing ${drawable.name}`);
+    getTextureDictionaryByShaderItemName(shaderItemName: string, textureDictionary: ICodewalkerTextureDictionaryItem[]): ICodewalkerTextureDictionaryItem {
+      for (let item of textureDictionary) {
+        if (item.name === shaderItemName) {
+          return item;
+        }
+      }
 
-      console.time(`Processing ${drawable.name}`);
+      throw new Error('Texture dictionary item not found');
+    },
 
-      let drawableFileName = drawable.name;
-      let drawableName = drawableFileName.replace('_u.ydd.xml', '');
+    async processYdd(entries: FileSystemEntry[], zip: any, zipFolder: any, drawableXmlFile: FileSystemFileEntry) {
+      console.groupCollapsed(`Processing ${drawableXmlFile.fullPath}`);
+
+      console.time(`Processing ${drawableXmlFile.name}`);
+
+      // do not use drawableName from parsed YDD because of modded clothes
+      let drawableName = drawableXmlFile.name.replace('_u.ydd.xml', '');
       drawableName = drawableName.replace('_r.ydd.xml', '');
 
       let zipDrawableFolder = null;
 
-      if (this.group) {
-        this.scene.remove(this.group);
+      let drawableXml = await readFileAsText(drawableXmlFile);
+
+      if (!drawableXml) {
+        throw new Error('Should never occur');
       }
 
-      this.group = markRaw(new THREE.Group());
-      this.scene.add(this.group);
-
-      let {
-        normalMapFilename,
-        specularMapFilename
-      } = this.loadDrawableXml(drawable.name, await readFileAsText(drawable));
-
-      let normalMap = await this.findNormalMap(entries, drawableName, normalMapFilename);
-
-      if (normalMap !== null) {
-        await this.loadNormalMap(drawableName, normalMap);
-      } else {
-        this.material.normalMap = null;
-        this.material.needsUpdate = true;
-        console.warn(`Normal map not found for ${drawableName}`);
+      if (!this.group) {
+        this.group = markRaw(new THREE.Group());
+        this.scene.add(this.group);
       }
 
-      let specularMap = await this.findNormalMap(entries, drawableName, specularMapFilename);
+      let yddData = parseCodewalkerYdd(drawableXml);
+      yddData.shaderGroup.textureDictionary
 
-      if (specularMap !== null) {
-        await this.loadSpecularMap(drawableName, specularMap);
-      } else {
-        this.material.specularMap = null;
-        this.material.needsUpdate = true;
-        console.warn(`Specular map not found for ${drawableName}`);
+      let material = this.createMaterial();
+
+      for (let geometryData of yddData.geometries) {
+        let geometry = new THREE.BufferGeometry();
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(geometryData.vertices), 3));
+        geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(geometryData.uvs[0]), 2));
+
+        if (geometryData.uvs.length >= 2) {
+          for (let i = 1; i < geometryData.uvs.length; i++) {
+            geometry.setAttribute(`uv${i}`, new THREE.BufferAttribute(new Float32Array(geometryData.uvs[i]), 2));
+          }
+        }
+
+        geometry.setIndex(geometryData.indices);
+
+        if (geometryData.normals) {
+          geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(geometryData.normals), 3));
+        } else {
+          console.warn('Cannot find normals, computing them');
+          geometry.computeVertexNormals();
+        }
+
+        // some models exported from codewalker have NaN tangents
+        // if (geometryData.tangent) {
+        //   geometry.setAttribute('tangent', new THREE.BufferAttribute(new Float32Array(geometryData.tangent), 4));
+        // }
+
+        geometry.computeTangents();
+
+        if (yddData.shaderGroup && yddData.shaderGroup.textureDictionary) {
+          let shaders = yddData.shaderGroup.shaders[geometryData.shaderIndex];
+
+          if (shaders.parameters?.BumpSampler) {
+            let dict = this.getTextureDictionaryByShaderItemName(shaders.parameters.BumpSampler, yddData.shaderGroup!.textureDictionary);
+
+            let normalMap = await this.findNormalMap(entries, drawableName, dict.filename!);
+
+            if (normalMap !== null) {
+              let texture = await this.loadTexture(drawableName, normalMap);
+
+              material.normalMap = texture;
+              material.needsUpdate = true;
+            } else {
+              material.normalMap = null;
+              material.needsUpdate = true;
+              console.warn(`Normal map not found for ${drawableName}`);
+            }
+          }
+
+          if (shaders.parameters?.SpecSampler) {
+            let dict = this.getTextureDictionaryByShaderItemName(shaders.parameters.SpecSampler, yddData.shaderGroup!.textureDictionary);
+
+            let specularMap = await this.findNormalMap(entries, drawableName, dict.filename!);
+
+            if (specularMap !== null) {
+              let texture = await this.loadTexture(drawableName, specularMap);
+
+              material.specularMap = texture;
+              material.specular = new THREE.Color(0x777777);
+              material.needsUpdate = true;
+            } else {
+              material.normalMap = null;
+              material.needsUpdate = true;
+              console.warn(`Normal map not found for ${drawableName}`);
+            }
+          }
+        }
+
+
+        let mesh = new THREE.Mesh(geometry, material);
+        this.group.add(mesh);
       }
+
+      this.setCameraLookAtGroup(this.group);
 
       let textures = await this.findTextures(entries, drawableName);
 
-      // console.log(textures);
-
-      if (!textures.length) {
-        console.warn(`Textures not found for ${drawableName}, loading test UV texture`);
-
-        textures = [
-          {
-            fileName: 'uv_test.png',
-          }
-        ];
-      }
-
-      this.pointFrustumAtGeometry();
+      let isRendered = false;
 
       for (let texture of textures) {
         try {
@@ -885,14 +401,12 @@ export default defineComponent({
             loadedTexture = await this.loadUvTexture();
           }
 
-          if (!this.material) {
-            this.material = this.createMaterial();
-          }
-
-          this.material.map = loadedTexture;
-          this.material.needsUpdate = true;
+          material.map = loadedTexture;
+          material.needsUpdate = true;
 
           this.renderCurrentModel();
+
+          isRendered = true;
 
           let blob = await this.canvasToPng();
 
@@ -906,12 +420,24 @@ export default defineComponent({
         }
       }
 
-      console.timeEnd(`Processing ${drawable.name}`);
+      if (!isRendered) {
+        this.renderCurrentModel();
+      }
 
-      console.groupEnd(`Processing ${drawable.name}`);
+      for (let child of this.group.children) {
+        child.geometry.dispose();
+        child.material.dispose();
+
+        this.group.remove(child);
+      }
+
+      this.group.position.set(0, 0, 0);
+
+      console.timeEnd(`Processing ${drawableXmlFile.name}`);
+      console.groupEnd();
     },
 
-    async traverseDirs(dir, zip, zipFolderName) {
+    async traverseDirs(dir: FileSystemDirectoryEntry, zip: any, zipFolderName: string) {
       let entries = await readDirectory(dir);
 
       let drawables = await this.findDrawables(entries);
@@ -935,7 +461,7 @@ export default defineComponent({
       }
     },
 
-    async traverseFileSystem(item) {
+    async traverseFileSystem(item: FileSystemDirectoryEntry) {
       if (this.status.isWorking) {
         return;
       }
@@ -961,11 +487,15 @@ export default defineComponent({
           this.status.totalFolders = entries.length;
 
           for (let i = 0; i < entries.length; i++) {
+            if (entries[i].isDirectory === false) {
+              continue;
+            }
+
             this.status.currentFolder++;
 
             let zip = new JSZip.default();
 
-            await this.traverseDirs(entries[i], zip, entries[i].name);
+            await this.traverseDirs(entries[i] as FileSystemDirectoryEntry, zip, entries[i].name);
 
             await this.downloadZip(zip, `${entries[i].name}.zip`);
           }
@@ -975,7 +505,7 @@ export default defineComponent({
       this.status.isWorking = false;
     },
 
-    async downloadZip(zip, filename) {
+    async downloadZip(zip: any, filename: string) {
       this.status.generateZip = true;
       let blob = await zip.generateAsync({ type: "blob" });
 
@@ -990,7 +520,11 @@ export default defineComponent({
       this.status.generateZip = false;
     },
 
-    onDrop(event) {
+    onDrop(event: DragEvent) {
+      if (!event.dataTransfer) {
+        return;
+      }
+
       let items = event.dataTransfer.items;
 
       event.preventDefault();
@@ -998,8 +532,12 @@ export default defineComponent({
       for (let i = 0; i < items.length; i++) {
         let item = items[i].webkitGetAsEntry();
 
+        if (!item || item.isDirectory === false) {
+          continue;
+        }
+
         if (item) {
-          this.traverseFileSystem(item);
+          this.traverseFileSystem(item as FileSystemDirectoryEntry);
         }
       }
     }
@@ -1007,7 +545,7 @@ export default defineComponent({
 
   computed: {
     getStatusClasses() {
-      let classes = [];
+      let classes: string[] = [];
 
       return classes;
     },

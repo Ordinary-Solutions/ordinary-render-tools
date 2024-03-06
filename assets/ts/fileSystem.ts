@@ -18,7 +18,7 @@ export async function readDirectory(directory: FileSystemDirectoryEntry): Promis
     });
 }
 
-export async function readFileAsText(fileEntry: FileSystemFileEntry): Promise<string | null> {
+export async function readFileAsText(fileEntry: FileSystemFileEntry): Promise<string> {
     let file = await _getFileEntryAsFile(fileEntry);
 
     return new Promise((resolve, reject) => {
@@ -28,7 +28,7 @@ export async function readFileAsText(fileEntry: FileSystemFileEntry): Promise<st
             if (e.target && e.target.result) {
                 resolve(e.target.result as string);
             } else {
-                resolve(null);
+                reject(new Error('No result'));
             }
         }
 
@@ -36,7 +36,7 @@ export async function readFileAsText(fileEntry: FileSystemFileEntry): Promise<st
     });
 }
 
-export async function readFileAsDataURL(fileEntry: FileSystemFileEntry): Promise<string | null> {
+export async function readFileAsDataURL(fileEntry: FileSystemFileEntry): Promise<string> {
     let file = await _getFileEntryAsFile(fileEntry);
 
     return new Promise((resolve, reject) => {
@@ -46,7 +46,7 @@ export async function readFileAsDataURL(fileEntry: FileSystemFileEntry): Promise
             if (e.target && e.target.result) {
                 resolve(e.target.result as string);
             } else {
-                resolve(null);
+                reject(new Error('No result'));
             }
         }
 
