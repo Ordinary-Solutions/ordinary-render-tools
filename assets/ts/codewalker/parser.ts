@@ -174,7 +174,7 @@ function _getTextureDictionaryData(textureDictionaryXml: Element) {
 function _getGeometryItemData(geometry: Element): IGeometryData {
     console.time('parseGeometryData');
 
-    let shaderIndex = 0; // TODO: implement
+    let shaderIndex = Number(geometry.querySelector('ShaderIndex')?.innerHTML);
     let layoutOffsets = _getLayoutOffsets(geometry);
 
     if (layoutOffsets.Position === undefined || layoutOffsets.TexCoord0 === undefined) {
@@ -202,7 +202,7 @@ function _getGeometryItemData(geometry: Element): IGeometryData {
     let vertexBuffer = vertexBufferLines.map(line => line.split(' ').map(Number));
 
     let geometryData: IGeometryData = {
-        shaderIndex: 0,
+        shaderIndex: shaderIndex,
         vertices: new Float32Array(vertexBuffer.length * 3),
         uvs: [
             new Float32Array(vertexBuffer.length * 2)

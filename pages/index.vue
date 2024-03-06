@@ -399,6 +399,7 @@ export default defineComponent({
           }
 
           material.map = loadedTexture;
+          // TODO: bugged with mpchristmas berd_003. Need to be fixed
           material.transparent = true;
 
           this.renderCurrentModel();
