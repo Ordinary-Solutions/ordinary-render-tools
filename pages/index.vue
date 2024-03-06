@@ -13,20 +13,14 @@ import type {
 export default defineComponent({
   name: "three",
   data: () => ({
-    // geometry: null,
-    meshes: markRaw([]),
-    scene: null,
-    perspectiveCamera: null,
-    orthographicCamera: null,
-    texture: null,
-    normalMap: null,
-    specularMap: null,
-    material: null,
-    group: null,
+    scene: markRaw(new THREE.Scene()),
+    perspectiveCamera: markRaw(new THREE.PerspectiveCamera(75, 1, 0.1, 1000)),
+    orthographicCamera: markRaw(new THREE.OrthographicCamera(-10, 10, 10, -10)),
+    group: markRaw(new THREE.Group()),
 
     cameraHelper: null,
 
-    currentFolder: null,
+    currentFolder: '',
 
     renderer: null,
 
@@ -44,19 +38,16 @@ export default defineComponent({
     },
   }),
   async mounted() {
-    this.scene = markRaw(new THREE.Scene());
     // this.scene.background = new THREE.Color(0x00ff00);
-    this.perspectiveCamera = markRaw(new THREE.PerspectiveCamera(75, 1, 0.1, 1000));
-    // this.cameraHelper = markRaw(new THREE.CameraHelper(this.camera));
+    // this.cameraHelper = markRaw(new THREE.CameraHelper(this.perspectiveCamera));
     // this.scene.add(this.cameraHelper);
 
-    this.orthographicCamera = markRaw(new THREE.OrthographicCamera(-10, 10, 10, -10));
-    // this.debugCamera.position.x = 0;
-    // this.debugCamera.position.y = -2;
+    // this.orthographicCamera.position.x = 0;
+    // this.orthographicCamera.position.y = -2;
     this.orthographicCamera.position.x = 0;
     this.orthographicCamera.position.y = -2;
     this.orthographicCamera.position.z = 0;
-    // this.cameraHelper = markRaw(new THREE.CameraHelper(this.debugCamera));
+    // this.cameraHelper = markRaw(new THREE.CameraHelper(this.orthographicCamera));
     // this.scene.add(this.cameraHelper);
 
     let manager = new THREE.LoadingManager();
@@ -64,14 +55,16 @@ export default defineComponent({
 
     this.ddsLoader = new DDSLoader(manager);
 
-    this.renderer = new THREE.WebGLRenderer({
+    let renderer = markRaw(new THREE.WebGLRenderer({
       canvas: this.$refs.canvas! as HTMLCanvasElement,
       antialias: true,
       alpha: true,
       powerPreference: 'high-performance',
-    });
+    }));
 
-    this.renderer.setSize(1024, 1024);
+    renderer.setSize(512, 512);
+
+    this.renderer = renderer;
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
     directionalLight.position.set(-2, -2, 5);
@@ -83,6 +76,8 @@ export default defineComponent({
 
     const alight = new THREE.AmbientLight(0x717171); // soft white light
     this.scene.add(alight);
+
+    this.scene.add(this.group);
   },
   methods: {
     renderCurrentModel() {
@@ -247,8 +242,8 @@ export default defineComponent({
       return result;
     },
 
-    async findDrawables(entries: FileSystemFileEntry[]) {
-      let res = [];
+    findDrawables(entries: FileSystemEntry[]): FileSystemFileEntry[] {
+      let res: FileSystemFileEntry[] = [];
 
       for (let entry of entries) {
         if (!entry.isFile) {
@@ -259,7 +254,7 @@ export default defineComponent({
           continue;
         }
 
-        res.push(entry);
+        res.push(entry as FileSystemFileEntry);
       }
 
       return res;
@@ -296,11 +291,6 @@ export default defineComponent({
 
       if (!drawableXml) {
         throw new Error('Should never occur');
-      }
-
-      if (!this.group) {
-        this.group = markRaw(new THREE.Group());
-        this.scene.add(this.group);
       }
 
       let yddData = parseCodewalkerYdd(drawableXml);
@@ -386,6 +376,8 @@ export default defineComponent({
 
       let isRendered = false;
 
+      let textureId = 0;
+
       for (let texture of textures) {
         try {
           let loadedTexture;
@@ -414,7 +406,7 @@ export default defineComponent({
             zipDrawableFolder = zipFolder.folder(drawableName);
           }
 
-          zipDrawableFolder.file(texture.fileName.replace('.dds', '.png'), blob);
+          zipDrawableFolder.file(`${textureId}.png`, blob);
         } catch (e) {
           console.error(e);
         }
@@ -424,8 +416,12 @@ export default defineComponent({
         this.renderCurrentModel();
       }
 
-      for (let child of this.group.children) {
+      while (this.group.children.length > 0) {
+        let child = this.group.children[0];
+
+        // @ts-ignore
         child.geometry.dispose();
+        // @ts-ignore
         child.material.dispose();
 
         this.group.remove(child);
@@ -440,7 +436,7 @@ export default defineComponent({
     async traverseDirs(dir: FileSystemDirectoryEntry, zip: any, zipFolderName: string) {
       let entries = await readDirectory(dir);
 
-      let drawables = await this.findDrawables(entries);
+      let drawables = this.findDrawables(entries);
       // let ydrs = await this.findYdrs(entries);
 
       this.status.totalDrawables = drawables.length;
@@ -471,7 +467,7 @@ export default defineComponent({
       if (item.isDirectory) {
         let entries = await readDirectory(item);
 
-        let drawables = await this.findDrawables(entries);
+        let drawables = this.findDrawables(entries);
 
         if (drawables.length > 0) {
           let zip = new JSZip.default();
