@@ -9,6 +9,7 @@ import { parseCodewalkerYdd } from "~/assets/ts/codewalker/parser";
 import type {
   ICodewalkerTextureDictionaryItem
 } from "~/assets/ts/codewalker/interfaces/ICodewalkerTextureDictionaryItem";
+import { ClampToEdgeWrapping, MirroredRepeatWrapping } from "three/src/constants";
 
 export default defineComponent({
   name: "three",
@@ -62,7 +63,7 @@ export default defineComponent({
       powerPreference: 'high-performance',
     }));
 
-    renderer.setSize(512, 512);
+    renderer.setSize(1024, 1024);
 
     this.renderer = renderer;
 
@@ -97,6 +98,7 @@ export default defineComponent({
 
     async loadTexture(filename: string, content: string) {
       console.log(`Loading ${filename} as texture`);
+      console.time(`Loading ${filename}`);
 
       return new Promise<THREE.Texture>((resolve, reject) => {
         this.ddsLoader.load(
@@ -104,6 +106,7 @@ export default defineComponent({
             // onload
             (texture) => {
               // texture.channel = 0;
+              console.timeEnd(`Loading ${filename}`);
               resolve(texture);
             },
             undefined,
@@ -136,7 +139,7 @@ export default defineComponent({
 
       let bbSize = Math.max(bbSizeX, bbSizeZ, bbSizeY);
 
-      // let bbHelper = new THREE.BoxHelper(this.meshes[0], 0xff0000);
+      // let bbHelper = new THREE.BoxHelper(this.group, 0xff0000);
       // this.scene.add(bbHelper);
 
       if (this.orthographicCamera) {
@@ -337,11 +340,11 @@ export default defineComponent({
             if (normalMap !== null) {
               let texture = await this.loadTexture(drawableName, normalMap);
 
+              texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+
               material.normalMap = texture;
-              material.needsUpdate = true;
             } else {
               material.normalMap = null;
-              material.needsUpdate = true;
               console.warn(`Normal map not found for ${drawableName}`);
             }
           }
@@ -354,12 +357,12 @@ export default defineComponent({
             if (specularMap !== null) {
               let texture = await this.loadTexture(drawableName, specularMap);
 
+              texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+
               material.specularMap = texture;
               material.specular = new THREE.Color(0x777777);
-              material.needsUpdate = true;
             } else {
               material.normalMap = null;
-              material.needsUpdate = true;
               console.warn(`Normal map not found for ${drawableName}`);
             }
           }
@@ -385,6 +388,8 @@ export default defineComponent({
           if (texture.fileName.endsWith('.dds')) {
             try {
               loadedTexture = await this.loadTexture(texture.fileName, texture.content);
+
+              loadedTexture.wrapS = loadedTexture.wrapT = THREE.RepeatWrapping;
             } catch (e) {
               console.error(e);
               loadedTexture = await this.loadUvTexture();
@@ -394,7 +399,7 @@ export default defineComponent({
           }
 
           material.map = loadedTexture;
-          material.needsUpdate = true;
+          material.transparent = true;
 
           this.renderCurrentModel();
 

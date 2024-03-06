@@ -172,6 +172,8 @@ function _getTextureDictionaryData(textureDictionaryXml: Element) {
 }
 
 function _getGeometryItemData(geometry: Element): IGeometryData {
+    console.time('parseGeometryData');
+
     let shaderIndex = 0; // TODO: implement
     let layoutOffsets = _getLayoutOffsets(geometry);
 
@@ -232,20 +234,6 @@ function _getGeometryItemData(geometry: Element): IGeometryData {
         let vertex = buffer.slice(layoutOffsets.Position, layoutOffsets.Position + 3);
         let uvs = buffer.slice(layoutOffsets.TexCoord0, layoutOffsets.TexCoord0 + 2);
 
-        for (let idx in uvs) {
-            let uvValue = uvs[idx];
-
-            if (uvValue > 1 || uvValue < 0) {
-                uvValue = uvValue % 1;
-
-                if (uvValue < 0) {
-                    uvValue = 1 + uvValue;
-                }
-
-                uvs[idx] = uvValue;
-            }
-        }
-
         geometryData.vertices.set(vertex, i * 3);
         geometryData.uvs[0].set(uvs, i * 2);
 
@@ -303,8 +291,7 @@ function _getGeometryItemData(geometry: Element): IGeometryData {
 
     geometryData.indices = indexBuffer;
 
-    // TODO: get texture, specular map and normal map from shaders data
-    let specularMapName = geometry.querySelector("SpecularMapName")?.innerHTML;
+    console.timeEnd('parseGeometryData');
 
     return geometryData;
 }
