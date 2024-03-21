@@ -438,6 +438,7 @@ export default defineComponent({
           }
 
           zipDrawableFolder.file(`${textureId}.png`, blob);
+          textureId++;
         } catch (e) {
           console.error(e);
         }
