@@ -11,6 +11,12 @@ import type {
 } from "~/assets/ts/codewalker/interfaces/ICodewalkerTextureDictionaryItem";
 import type { IGeometryData } from "assets/ts/codewalker/interfaces/IGeometryData";
 
+interface IOutputFormat {
+  label: string;
+  value: string;
+  extension: string;
+}
+
 interface IComponentData {
   scene: THREE.Scene;
   perspectiveCamera: THREE.PerspectiveCamera;
@@ -28,6 +34,11 @@ interface IComponentData {
     totalDrawables: number;
   };
   currentFolder: string;
+
+  options: {
+    outputFormats: IOutputFormat[];
+    outputFormat: IOutputFormat | null;
+  };
 }
 
 export default defineComponent({
@@ -46,6 +57,22 @@ export default defineComponent({
 
     ddsLoader: null,
 
+    options: {
+      outputFormats: [
+        {
+          label: 'WebP',
+          value: 'webp',
+          extension: 'webp',
+        },
+        {
+          label: 'PNG',
+          value: 'png',
+          extension: 'png',
+        },
+      ],
+      outputFormat: null,
+    },
+
     status: {
       generateZip: false,
       isWorking: false,
@@ -57,7 +84,18 @@ export default defineComponent({
       totalDrawables: 0,
     },
   }),
+  watch: {
+    ['options.outputFormat']() {
+      if (this.options.outputFormat === null) {
+        return;
+      }
+
+      localStorage.setItem('outputFormat', this.options.outputFormat.value);
+    },
+  },
   async mounted() {
+    this.buildOptions();
+
     // this.scene.background = new THREE.Color(0x00ff00);
     // this.cameraHelper = markRaw(new THREE.CameraHelper(this.perspectiveCamera));
     // this.scene.add(this.cameraHelper);
@@ -100,6 +138,18 @@ export default defineComponent({
     this.scene.add(this.group);
   },
   methods: {
+    buildOptions() {
+      let outputFormat = localStorage.getItem('outputFormat');
+
+      if (outputFormat) {
+        this.options.outputFormat = this.options.outputFormats.find((item) => item.value === outputFormat) || null;
+      }
+
+      if (!this.options.outputFormat) {
+        this.options.outputFormat = this.options.outputFormats[0];
+      }
+    },
+
     renderCurrentModel() {
       if (this.orthographicCamera) {
         this.renderer!.render(this.scene, this.orthographicCamera);
@@ -187,7 +237,7 @@ export default defineComponent({
           continue;
         }
 
-        if (entry.name !== `${modelName}_u` && entry.name !== `${modelName}_r`) {
+        if (entry.name !== `${modelName}_u` && entry.name !== `${modelName}_r` && entry.name !== modelName) {
           continue;
         }
 
@@ -207,15 +257,12 @@ export default defineComponent({
       return null;
     },
 
-    isTextureDirectory(name: string) {
-      return name.endsWith('_uni') || name.endsWith('_whi');
-    },
-
-    canvasToPng(): Promise<Blob> {
+    canvasToImage(): Promise<Blob> {
       return new Promise((resolve) => {
-        this.$refs.canvas!.toBlob((blob: Blob) => {
+        // @ts-ignore
+        this.$refs.canvas.toBlob((blob: Blob) => {
           resolve(blob);
-        }, 'image/png');
+        }, `image/${this.options.outputFormat!.value}`);
       });
     },
 
@@ -236,7 +283,7 @@ export default defineComponent({
           continue;
         }
 
-        if (!entries[i].name.startsWith(modelName) || !this.isTextureDirectory(entries[i].name)) {
+        if (!entries[i].name.startsWith(`${modelName}_`)) {
           continue;
         }
 
@@ -338,6 +385,11 @@ export default defineComponent({
       let drawableName = drawableXmlFile.name.replace('_u.ydd.xml', '');
       drawableName = drawableName.replace('_r.ydd.xml', '');
 
+      // props have their own naming rules
+      if (drawableName.startsWith('p_')) {
+        drawableName = drawableName.replace('.ydd.xml', '');
+      }
+
       let zipDrawableFolder = null;
 
       let drawableXml = await readFileAsText(drawableXmlFile);
@@ -431,13 +483,13 @@ export default defineComponent({
 
           isRendered = true;
 
-          let blob = await this.canvasToPng();
+          let blob = await this.canvasToImage();
 
           if (!zipDrawableFolder) {
             zipDrawableFolder = zipFolder.folder(drawableName);
           }
 
-          zipDrawableFolder.file(`${textureId}.png`, blob);
+          zipDrawableFolder.file(`${textureId}.${this.options.outputFormat!.extension}`, blob);
           textureId++;
         } catch (e) {
           console.error(e);
@@ -600,6 +652,10 @@ export default defineComponent({
       <div class="ui-panel__status">
         Current status: <span class="ui-panel__status" :class="getStatusClasses">{{ getStatusString }}</span>
       </div>
+
+      <select v-model="options.outputFormat">
+        <option v-for="option in options.outputFormats" :value="option">{{ option.label }}</option>
+      </select>
     </div>
   </div>
 </template>
